@@ -46,6 +46,7 @@ public class DeduplicateSAM{
         int unmapped = 0;
         int unpaired = 0;
         int chimeric = 0;
+        int nonPrimary = 0;
         int readCount = 0;
 
         for(SAMRecord record : reader){
@@ -54,6 +55,12 @@ public class DeduplicateSAM{
                 continue;
 
             totalReadCount++;
+
+            // written by Writer only if the primary pair is written
+            if(paired && record.isSecondaryOrSupplementary()){
+                nonPrimary++;
+                continue;
+            }
 
             if(record.getReadUnmappedFlag()){ // discard unmapped reads
                 unmapped++;
@@ -190,7 +197,8 @@ public class DeduplicateSAM{
                 if(record.getReadUnmappedFlag()) // discard unmapped reads
                     continue;
 
-                if(paired && ((removeUnpaired && !record.getReadPairedFlag()) // discard unpaired
+                if(paired && (record.isSecondaryOrSupplementary() // written by Writer if the primary pair is written
+                            || (removeUnpaired && !record.getReadPairedFlag()) // discard unpaired
                             || (record.getReadPairedFlag() && record.getSecondOfPairFlag()) // ignore reversed reads
                             || (record.getReadPairedFlag() && record.getMateUnmappedFlag()) // discard unmapped reads
                             || (removeChimeric && record.getReadPairedFlag()
@@ -258,6 +266,7 @@ public class DeduplicateSAM{
         if(paired){
             System.out.println("Number of unpaired reads\t" + unpaired);
             System.out.println("Number of chimeric reads\t" + chimeric);
+            System.out.println("Number of secondary/supplementary reads\t" + nonPrimary);
         }
 
         System.out.println("Number of unremoved reads\t" + readCount);
@@ -281,6 +290,7 @@ public class DeduplicateSAM{
         int unmapped = 0;
         int unpaired = 0;
         int chimeric = 0;
+        int nonPrimary = 0;
         int readCount = 0;
 
         // first pass to figure out where each alignment position ends
@@ -290,6 +300,12 @@ public class DeduplicateSAM{
                 continue;
 
             totalReadCount++;
+
+            // written by Writer only if the primary pair is written
+            if(paired && record.isSecondaryOrSupplementary()){
+                nonPrimary++;
+                continue;
+            }
 
             if(record.getReadUnmappedFlag()){ // discard unmapped reads
                 unmapped++;
@@ -370,7 +386,8 @@ public class DeduplicateSAM{
             if(record.getReadUnmappedFlag()) // discard unmapped reads
                 continue;
 
-            if(paired && ((removeUnpaired && !record.getReadPairedFlag()) // discard unpaired
+            if(paired && (record.isSecondaryOrSupplementary() // written by Writer if the primary pair is written
+                        || (removeUnpaired && !record.getReadPairedFlag()) // discard unpaired
                         || (record.getReadPairedFlag() && record.getSecondOfPairFlag()) // ignore reversed reads
                         || (record.getReadPairedFlag() && record.getMateUnmappedFlag()) // discard unmapped reads
                         || (removeChimeric && record.getReadPairedFlag()
@@ -457,6 +474,7 @@ public class DeduplicateSAM{
         if(paired){
             System.out.println("Number of unpaired reads\t" + unpaired);
             System.out.println("Number of chimeric reads\t" + chimeric);
+            System.out.println("Number of secondary/supplementary reads\t" + nonPrimary);
         }
 
         System.out.println("Number of unremoved reads\t" + readCount);
