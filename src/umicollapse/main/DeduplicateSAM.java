@@ -50,17 +50,18 @@ public class DeduplicateSAM{
         int readCount = 0;
 
         for(SAMRecord record : reader){
+            // written by Writer only if the primary pair is written
+            if(paired && record.isSecondaryOrSupplementary()){
+                writer.addNonPrimary(record.getReadName());
+                nonPrimary++;
+                continue;
+            }
+
             // always skip the reversed read
             if(paired && record.getReadPairedFlag() && record.getSecondOfPairFlag())
                 continue;
 
             totalReadCount++;
-
-            // written by Writer only if the primary pair is written
-            if(paired && record.isSecondaryOrSupplementary()){
-                nonPrimary++;
-                continue;
-            }
 
             if(record.getReadUnmappedFlag()){ // discard unmapped reads
                 unmapped++;
@@ -295,17 +296,18 @@ public class DeduplicateSAM{
 
         // first pass to figure out where each alignment position ends
         for(SAMRecord record : firstPass){
+            // written by Writer only if the primary pair is written
+            if(paired && record.isSecondaryOrSupplementary()){
+                writer.addNonPrimary(record.getReadName());
+                nonPrimary++;
+                continue;
+            }
+
             // always skip the reversed read
             if(paired && record.getReadPairedFlag() && record.getSecondOfPairFlag())
                 continue;
 
             totalReadCount++;
-
-            // written by Writer only if the primary pair is written
-            if(paired && record.isSecondaryOrSupplementary()){
-                nonPrimary++;
-                continue;
-            }
 
             if(record.getReadUnmappedFlag()){ // discard unmapped reads
                 unmapped++;
@@ -545,17 +547,23 @@ public class DeduplicateSAM{
         private File in;
         private String ref = null;
         private HashSet<ReversedRead> set;
-        private HashSet<String> survivors; // names of written pairs, for their secondary/supplementary records
+        private HashSet<String> nonPrimary; // names that have secondary/supplementary records
+        private HashSet<String> survivors; // names in nonPrimary whose primary pair was written
 
         public Writer(File in, File out, SamReader r, boolean paired){
             if(paired){
                 this.in = in;
                 this.set = new HashSet<ReversedRead>();
+                this.nonPrimary = new HashSet<String>();
                 this.survivors = new HashSet<String>();
             }
 
             this.writer = new SAMFileWriterFactory().makeSAMOrBAMWriter(r.getFileHeader(), false, out);
             this.paired = paired;
+        }
+
+        public void addNonPrimary(String name){
+            nonPrimary.add(name);
         }
 
         public void write(SAMRecord record){
@@ -578,7 +586,8 @@ public class DeduplicateSAM{
                     ));
                 }
 
-                survivors.add(record.getReadName());
+                if(nonPrimary.contains(record.getReadName()))
+                    survivors.add(record.getReadName());
             }
 
             writer.addAlignment(record);
