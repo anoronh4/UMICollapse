@@ -507,6 +507,9 @@ public class DeduplicateSAM{
             if(ref != a.ref)
                 return false;
 
+            if(coord != a.coord)
+                return false;
+
             if(!name.equals(a.name))
                 return false;
 
@@ -542,11 +545,13 @@ public class DeduplicateSAM{
         private File in;
         private String ref = null;
         private HashSet<ReversedRead> set;
+        private HashSet<String> survivors; // names of written pairs, for their secondary/supplementary records
 
         public Writer(File in, File out, SamReader r, boolean paired){
             if(paired){
                 this.in = in;
                 this.set = new HashSet<ReversedRead>();
+                this.survivors = new HashSet<String>();
             }
 
             this.writer = new SAMFileWriterFactory().makeSAMOrBAMWriter(r.getFileHeader(), false, out);
@@ -572,6 +577,8 @@ public class DeduplicateSAM{
                             record.getMateAlignmentStart()
                     ));
                 }
+
+                survivors.add(record.getReadName());
             }
 
             writer.addAlignment(record);
@@ -598,6 +605,14 @@ public class DeduplicateSAM{
 
             while(iter.hasNext()){
                 SAMRecord record = iter.next();
+
+                if(record.isSecondaryOrSupplementary()){
+                    // only the full pass, so each one is written once
+                    if(fullPass && !record.getReadUnmappedFlag() && survivors.contains(record.getReadName()))
+                        writer.addAlignment(record);
+
+                    continue;
+                }
 
                 if(!record.getReadUnmappedFlag()
                         && record.getReadPairedFlag()
