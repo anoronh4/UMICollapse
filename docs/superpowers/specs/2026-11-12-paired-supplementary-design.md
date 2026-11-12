@@ -37,11 +37,11 @@ In paired mode, skip any record with `isSecondaryOrSupplementary()` before the a
 
 The two `--two-pass` loops must skip exactly the same records. The second pass detects that a group is complete by comparing a running record index against the `latest` index recorded in the first pass, so any mismatch in filtering would flush groups early or never.
 
-The skip happens after `totalReadCount++`, so the reported input count is unchanged. A new counter is printed in paired mode as `Number of secondary/supplementary reads`.
+In the two first-pass loops, the skip comes before the existing R2 skip. It counts every secondary/supplementary record (R1 or R2) in a new counter, printed in paired mode as `Number of secondary/supplementary reads`, and passes the record's read name to `Writer.addNonPrimary`. As a result, `Number of input reads` now counts primary R1 records only.
 
 ### 2. `Writer` (paired mode only)
 
-1. New field `HashSet<String> survivors`. `write(record)` adds `record.getReadName()` for every record it is given (only primary R1s, after section 1). The set is kept until `close()`.
+1. New fields `HashSet<String> nonPrimary` (filled by `addNonPrimary` during the first-pass loops) and `HashSet<String> survivors`. `write(record)` adds `record.getReadName()` to `survivors` only if the name is in `nonPrimary`. Both sets are kept until `close()`.
 2. `writeReversed`: the primary R2 match condition also requires `!record.isSecondaryOrSupplementary()`.
 3. `ReversedRead.equals` also compares `coord`, matching `hashCode`. The match key becomes name + reference + position.
 4. `writeReversed(true)` (the full pass in `close()`) handles each record one of two ways:
@@ -58,7 +58,7 @@ Emission order does not determine file order. `Writer` opens the output with `ma
 
 ### Memory
 
-One name string per surviving pair. This is new for `--two-pass`, where it is roughly the size of the pending-R2 set at its peak but kept until the end. If it becomes a problem, storing a hash of the name would reduce it.
+One name string per read that has a secondary/supplementary record. This is typically a few percent of pairs, not one string per surviving pair. Narrowing the set this way keeps `--two-pass` low-memory. If it becomes a problem, storing a hash of the name would reduce it further.
 
 ## Testing
 
