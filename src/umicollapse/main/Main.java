@@ -89,6 +89,7 @@ public class Main{
         boolean removeUnpaired = false;
         boolean removeChimeric = false;
         boolean keepUnmapped = false;
+        boolean softClipOnly = false;
 
         boolean trackClusters = false;
 
@@ -182,6 +183,11 @@ public class Main{
         if(m.containsKey(s))
             keepUnmapped = true;
 
+        s = "--soft-clip-only";
+
+        if(m.containsKey(s))
+            softClipOnly = true;
+
         s = "--tag";
 
         if(m.containsKey(s))
@@ -216,9 +222,9 @@ public class Main{
             DeduplicateSAM dedup = new DeduplicateSAM();
 
             if(twoPass){
-                dedup.deduplicateAndMergeTwoPass(in, out, a, d, mAlgo, umiLength, k, percentage, umiSeparator, paired, removeUnpaired, removeChimeric, keepUnmapped, trackClusters);
+                dedup.deduplicateAndMergeTwoPass(in, out, a, d, mAlgo, umiLength, k, percentage, umiSeparator, paired, removeUnpaired, removeChimeric, keepUnmapped, trackClusters, softClipOnly);
             }else{
-                dedup.deduplicateAndMerge(in, out, a, d, mAlgo, umiLength, k, percentage, parallelAlign, umiSeparator, paired, removeUnpaired, removeChimeric, keepUnmapped, trackClusters);
+                dedup.deduplicateAndMerge(in, out, a, d, mAlgo, umiLength, k, percentage, parallelAlign, umiSeparator, paired, removeUnpaired, removeChimeric, keepUnmapped, trackClusters, softClipOnly);
             }
         }
 

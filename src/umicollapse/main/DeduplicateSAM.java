@@ -1,5 +1,7 @@
 package umicollapse.main;
 
+import htsjdk.samtools.CigarElement;
+import htsjdk.samtools.CigarOperator;
 import htsjdk.samtools.SAMRecord;
 import htsjdk.samtools.SamReader;
 import htsjdk.samtools.ValidationStringency;
@@ -34,7 +36,7 @@ public class DeduplicateSAM{
     private int dedupedCount;
     private int umiLength;
 
-    public void deduplicateAndMerge(File in, File out, Algo algo, Class<? extends Data> dataClass, Merge merge, int umiLengthParam, int k, float percentage, boolean parallel, String umiSeparator, boolean paired, boolean removeUnpaired, boolean removeChimeric, boolean keepUnmapped, boolean trackClusters){
+    public void deduplicateAndMerge(File in, File out, Algo algo, Class<? extends Data> dataClass, Merge merge, int umiLengthParam, int k, float percentage, boolean parallel, String umiSeparator, boolean paired, boolean removeUnpaired, boolean removeChimeric, boolean keepUnmapped, boolean trackClusters, boolean softClipOnly){
         SAMRead.setDefaultUMIPattern(umiSeparator);
 
         SamReader reader = SamReaderFactory.makeDefault().validationStringency(ValidationStringency.SILENT).open(in);
@@ -49,6 +51,10 @@ public class DeduplicateSAM{
         int readCount = 0;
 
         for(SAMRecord record : reader){
+            // such reads can have several kept R1 records pointing at the same R2
+            if(paired && record.isSecondaryOrSupplementary())
+                writer.addMultiRecord(record.getReadName());
+
             // always skip the reversed read
             if(paired && record.getReadPairedFlag() && record.getSecondOfPairFlag())
                 continue;
@@ -88,14 +94,14 @@ public class DeduplicateSAM{
             if(paired){
                 alignment = new PairedAlignment(
                         record.getReadNegativeStrandFlag(),
-                        record.getReadNegativeStrandFlag() ? record.getUnclippedEnd() : record.getUnclippedStart(),
+                        fivePrime(record, softClipOnly),
                         record.getReferenceName(),
                         record.getInferredInsertSize()
                 );
             }else{
                 alignment = new Alignment(
                         record.getReadNegativeStrandFlag(),
-                        record.getReadNegativeStrandFlag() ? record.getUnclippedEnd() : record.getUnclippedStart(),
+                        fivePrime(record, softClipOnly),
                         record.getReferenceName()
                 );
             }
@@ -203,14 +209,14 @@ public class DeduplicateSAM{
                 if(paired){
                     alignment = new PairedAlignment(
                             record.getReadNegativeStrandFlag(),
-                            record.getReadNegativeStrandFlag() ? record.getUnclippedEnd() : record.getUnclippedStart(),
+                            fivePrime(record, softClipOnly),
                             record.getReferenceName(),
                             record.getInferredInsertSize()
                     );
                 }else{
                     alignment = new Alignment(
                             record.getReadNegativeStrandFlag(),
-                            record.getReadNegativeStrandFlag() ? record.getUnclippedEnd() : record.getUnclippedStart(),
+                            fivePrime(record, softClipOnly),
                             record.getReferenceName()
                     );
                 }
@@ -273,7 +279,7 @@ public class DeduplicateSAM{
 
     // trade off speed for lower memory usage
     // input should be sorted based on alignment for best results
-    public void deduplicateAndMergeTwoPass(File in, File out, Algo algo, Class<? extends Data> dataClass, Merge merge, int umiLengthParam, int k, float percentage, String umiSeparator, boolean paired, boolean removeUnpaired, boolean removeChimeric, boolean keepUnmapped, boolean trackClusters){
+    public void deduplicateAndMergeTwoPass(File in, File out, Algo algo, Class<? extends Data> dataClass, Merge merge, int umiLengthParam, int k, float percentage, String umiSeparator, boolean paired, boolean removeUnpaired, boolean removeChimeric, boolean keepUnmapped, boolean trackClusters, boolean softClipOnly){
         SamReader firstPass = SamReaderFactory.makeDefault().validationStringency(ValidationStringency.SILENT).open(in);
         Writer writer = new Writer(in, out, firstPass, paired);
         Map<Alignment, AlignReads> align = new HashMap<>(1 << 16);
@@ -285,6 +291,10 @@ public class DeduplicateSAM{
 
         // first pass to figure out where each alignment position ends
         for(SAMRecord record : firstPass){
+            // such reads can have several kept R1 records pointing at the same R2
+            if(paired && record.isSecondaryOrSupplementary())
+                writer.addMultiRecord(record.getReadName());
+
             // always skip the reversed read
             if(paired && record.getReadPairedFlag() && record.getSecondOfPairFlag())
                 continue;
@@ -324,14 +334,14 @@ public class DeduplicateSAM{
             if(paired){
                 alignment = new PairedAlignment(
                         record.getReadNegativeStrandFlag(),
-                        record.getReadNegativeStrandFlag() ? record.getUnclippedEnd() : record.getUnclippedStart(),
+                        fivePrime(record, softClipOnly),
                         record.getReferenceName(),
                         record.getInferredInsertSize()
                 );
             }else{
                 alignment = new Alignment(
                         record.getReadNegativeStrandFlag(),
-                        record.getReadNegativeStrandFlag() ? record.getUnclippedEnd() : record.getUnclippedStart(),
+                        fivePrime(record, softClipOnly),
                         record.getReferenceName()
                 );
             }
@@ -383,14 +393,14 @@ public class DeduplicateSAM{
             if(paired){
                 alignment = new PairedAlignment(
                         record.getReadNegativeStrandFlag(),
-                        record.getReadNegativeStrandFlag() ? record.getUnclippedEnd() : record.getUnclippedStart(),
+                        fivePrime(record, softClipOnly),
                         record.getReferenceName(),
                         record.getInferredInsertSize()
                 );
             }else{
                 alignment = new Alignment(
                         record.getReadNegativeStrandFlag(),
-                        record.getReadNegativeStrandFlag() ? record.getUnclippedEnd() : record.getUnclippedStart(),
+                        fivePrime(record, softClipOnly),
                         record.getReferenceName()
                 );
             }
@@ -489,6 +499,9 @@ public class DeduplicateSAM{
             if(ref != a.ref)
                 return false;
 
+            if(coord != a.coord)
+                return false;
+
             if(!name.equals(a.name))
                 return false;
 
@@ -517,6 +530,22 @@ public class DeduplicateSAM{
         }
     }
 
+    // 5' coordinate of a read; softClipOnly adds back soft clips but not hard clips, like UMI-tools
+    private static int fivePrime(SAMRecord record, boolean softClipOnly){
+        if(!softClipOnly)
+            return record.getReadNegativeStrandFlag() ? record.getUnclippedEnd() : record.getUnclippedStart();
+
+        List<CigarElement> cigar = record.getCigar().getCigarElements();
+
+        if(record.getReadNegativeStrandFlag()){
+            CigarElement last = cigar.isEmpty() ? null : cigar.get(cigar.size() - 1);
+            return record.getAlignmentEnd() + (last != null && last.getOperator() == CigarOperator.S ? last.getLength() : 0);
+        }
+
+        CigarElement first = cigar.isEmpty() ? null : cigar.get(0);
+        return record.getAlignmentStart() - (first != null && first.getOperator() == CigarOperator.S ? first.getLength() : 0);
+    }
+
     // heavily inspired by TwoPassPairWriter from UMI-tools
     private static class Writer{
         private boolean paired;
@@ -524,15 +553,23 @@ public class DeduplicateSAM{
         private File in;
         private String ref = null;
         private HashSet<ReversedRead> set;
+        private HashSet<String> multiRecord; // names that have secondary/supplementary records
+        private HashSet<ReversedRead> written; // R2s already written, only for names in multiRecord
 
         public Writer(File in, File out, SamReader r, boolean paired){
             if(paired){
                 this.in = in;
                 this.set = new HashSet<ReversedRead>();
+                this.multiRecord = new HashSet<String>();
+                this.written = new HashSet<ReversedRead>();
             }
 
             this.writer = new SAMFileWriterFactory().makeSAMOrBAMWriter(r.getFileHeader(), false, out);
             this.paired = paired;
+        }
+
+        public void addMultiRecord(String name){
+            multiRecord.add(name);
         }
 
         public void write(SAMRecord record){
@@ -548,11 +585,15 @@ public class DeduplicateSAM{
                 }
 
                 if(record.getReadPairedFlag()){
-                    set.add(new ReversedRead(
+                    ReversedRead mate = new ReversedRead(
                             record.getReadName(),
                             record.getMateReferenceName(),
                             record.getMateAlignmentStart()
-                    ));
+                    );
+
+                    // several kept R1 records of a read can point at the same R2: write it once
+                    if(!written.contains(mate))
+                        set.add(mate);
                 }
             }
 
@@ -594,6 +635,9 @@ public class DeduplicateSAM{
                     if(set.contains(read)){
                         writer.addAlignment(record);
                         set.remove(read);
+
+                        if(multiRecord.contains(read.name))
+                            written.add(read);
                     }
                 }
             }

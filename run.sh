@@ -1,1 +1,1 @@
-java --release 11 -cp umicollapse.jar $@
+java -cp umicollapse.jar $@
